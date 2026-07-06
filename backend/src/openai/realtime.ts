@@ -46,7 +46,7 @@ export class RealtimeTranscriptionSession {
         resolve();
       });
 
-      this.ws.on('message', (data) => {
+      this.ws.on('message', (data: WebSocket.RawData) => {
         try {
           const event = JSON.parse(data.toString()) as Record<string, unknown>;
           this.handleServerEvent(event);

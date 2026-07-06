@@ -240,7 +240,7 @@ function attachSessionHandlers(ws: WebSocket, state: SessionState): void {
 
   void ensureRealtimeSession(ws, state);
 
-  ws.on('message', (raw) => {
+  ws.on('message', (raw: Buffer | ArrayBuffer | Buffer[]) => {
     const current = sessions.get(ws);
     if (!current) return;
 
