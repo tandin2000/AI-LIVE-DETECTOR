@@ -41,7 +41,6 @@ Browser (React)  ──WebSocket──▶  Backend (Fastify)  ──▶  OpenAI 
    Copy `backend/.env.example` to `backend/.env` and set your values:
 
    ```env
-   OPENAI_API_KEY=sk-...
    JWT_SECRET=your-long-random-secret-at-least-32-chars
    HISTORY_AUTH_SECRET=another-random-secret
    ```
