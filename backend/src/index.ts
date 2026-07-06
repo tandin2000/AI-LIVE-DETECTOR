@@ -21,7 +21,8 @@ app.decorate('config', {
 
 async function start(): Promise<void> {
   await app.register(cors, {
-    origin: config.NODE_ENV === 'production' ? config.FRONTEND_URL : true,
+    // Single-service on Render is same-origin; allow request origin when deployed there.
+    origin: config.IS_RENDER || config.NODE_ENV !== 'production' ? true : config.FRONTEND_URL,
     credentials: true,
   });
 

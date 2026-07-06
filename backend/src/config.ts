@@ -48,8 +48,23 @@ const nodeEnv =
   data.NODE_ENV === 'production' || IS_RENDER ? 'production' : data.NODE_ENV;
 
 function resolveFrontendUrl(explicit?: string): string {
+  const trim = (url: string) => url.replace(/\/$/, '');
+
+  // On Render, always prefer platform URL — ignore http://localhost from copied .env
+  if (IS_RENDER) {
+    if (process.env.RENDER_EXTERNAL_URL) {
+      return trim(process.env.RENDER_EXTERNAL_URL);
+    }
+    if (process.env.RENDER_EXTERNAL_HOSTNAME) {
+      return `https://${process.env.RENDER_EXTERNAL_HOSTNAME}`;
+    }
+    if (explicit?.startsWith('https://')) {
+      return trim(explicit);
+    }
+  }
+
   const raw = explicit ?? process.env.RENDER_EXTERNAL_URL ?? 'http://localhost:5173';
-  return raw.replace(/\/$/, '');
+  return trim(raw);
 }
 
 const frontendUrl = resolveFrontendUrl(data.FRONTEND_URL);
@@ -76,8 +91,14 @@ if (nodeEnv === 'production') {
     process.exit(1);
   }
   if (!frontendUrl.startsWith('https://')) {
-    console.error('Production requires HTTPS FRONTEND_URL (or RENDER_EXTERNAL_URL).');
-    process.exit(1);
+    if (IS_RENDER) {
+      console.warn(
+        'FRONTEND_URL is not HTTPS on Render — same-origin mode (remove FRONTEND_URL from Render env if set to localhost).'
+      );
+    } else {
+      console.error('Production requires HTTPS FRONTEND_URL (or RENDER_EXTERNAL_URL).');
+      process.exit(1);
+    }
   }
 }
 
