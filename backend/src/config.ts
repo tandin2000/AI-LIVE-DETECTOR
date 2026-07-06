@@ -1,6 +1,16 @@
-import 'dotenv/config';
+import { config as loadDotenv } from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { createHash } from 'crypto';
 import { z } from 'zod';
+
+// Load local .env only — never on Render (avoids dev HOST/NODE_ENV leaking into deploy)
+if (!process.env.RENDER) {
+  const envPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '../.env');
+  loadDotenv({ path: envPath });
+}
+
+const IS_RENDER = process.env.RENDER === 'true';
 
 const DEV_JWT_PLACEHOLDER = 'dev-jwt-secret-change-in-production-32chars';
 const DEV_HISTORY_PLACEHOLDER = 'dev-history-secret-key';
@@ -34,6 +44,9 @@ if (!parsed.success) {
 
 const data = parsed.data;
 
+const nodeEnv =
+  data.NODE_ENV === 'production' || IS_RENDER ? 'production' : data.NODE_ENV;
+
 function resolveFrontendUrl(explicit?: string): string {
   const raw = explicit ?? process.env.RENDER_EXTERNAL_URL ?? 'http://localhost:5173';
   return raw.replace(/\/$/, '');
@@ -41,7 +54,22 @@ function resolveFrontendUrl(explicit?: string): string {
 
 const frontendUrl = resolveFrontendUrl(data.FRONTEND_URL);
 
-if (data.NODE_ENV === 'production') {
+function resolveHost(explicit?: string): string {
+  if (IS_RENDER || nodeEnv === 'production') return '0.0.0.0';
+  return explicit ?? '127.0.0.1';
+}
+
+function resolvePort(): number {
+  // Render injects PORT; always prefer the platform value when present.
+  const platformPort = process.env.PORT;
+  if (platformPort !== undefined && platformPort !== '') {
+    const n = Number(platformPort);
+    if (!Number.isNaN(n) && n > 0) return n;
+  }
+  return data.PORT;
+}
+
+if (nodeEnv === 'production') {
   const weakSecrets = [DEV_JWT_PLACEHOLDER, DEV_HISTORY_PLACEHOLDER, 'change-this'];
   if (weakSecrets.some((s) => data.JWT_SECRET.includes(s) || data.HISTORY_AUTH_SECRET.includes(s))) {
     console.error('Production requires strong JWT_SECRET and HISTORY_AUTH_SECRET (not dev placeholders).');
@@ -55,8 +83,11 @@ if (data.NODE_ENV === 'production') {
 
 export const config = {
   ...data,
+  NODE_ENV: nodeEnv,
+  IS_RENDER,
   FRONTEND_URL: frontendUrl,
-  HOST: data.HOST ?? (data.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1'),
+  HOST: resolveHost(data.HOST),
+  PORT: resolvePort(),
 };
 
 export function hashUserId(raw: string): string {

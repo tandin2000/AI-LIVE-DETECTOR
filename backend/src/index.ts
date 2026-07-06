@@ -38,13 +38,14 @@ async function start(): Promise<void> {
     handleWebSocketConnection(socket);
   });
 
-  if (config.NODE_ENV === 'production') {
+  if (config.NODE_ENV === 'production' || config.IS_RENDER) {
     await registerStaticAssets(app);
   }
 
   const port = config.PORT;
-  await app.listen({ port, host: config.HOST });
-  console.log(`Server running on http://${config.HOST}:${port}`);
+  const host = config.HOST;
+  await app.listen({ port, host });
+  console.log(`Server listening on ${host}:${port}`);
 }
 
 start().catch((err) => {

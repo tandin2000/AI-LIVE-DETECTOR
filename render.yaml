@@ -9,10 +9,9 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: HOST
+        value: 0.0.0.0
       - key: JWT_SECRET
         generateValue: true
       - key: HISTORY_AUTH_SECRET
         generateValue: true
-      # Optional — Render sets RENDER_EXTERNAL_URL automatically if omitted
-      # - key: FRONTEND_URL
-      #   value: https://your-service-name.onrender.com

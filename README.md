@@ -98,9 +98,11 @@ Open the URL shown in the logs (default port `3001`). For local HTTPS testing, u
    - **Health check path:** `/api/health`
 3. Set environment variables in the Render dashboard:
    - `NODE_ENV` = `production`
+   - `HOST` = `0.0.0.0` (auto-set when using `render.yaml`)
    - `JWT_SECRET` — long random string (32+ chars)
    - `HISTORY_AUTH_SECRET` — long random string (16+ chars)
    - `FRONTEND_URL` — optional; defaults to Render's `RENDER_EXTERNAL_URL`
+   - Do **not** set `HOST=127.0.0.1` on Render
 4. Users enter their OpenAI API key in the browser UI (stored in localStorage)
 
 > **Note:** Render's free tier spins down when idle. Live WebSocket sessions may disconnect on cold starts — use a paid instance for always-on use.
