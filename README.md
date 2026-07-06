@@ -15,10 +15,7 @@ Real-time AI fact-checking assistant that listens to microphone or system audio,
 ## Architecture
 
 ```
-Browser (React)  ──WebSocket──▶  Backend (Fastify)  ──▶  OpenAI Realtime + Chat APIs
-     │                                │
-     └── Audio capture only           └── API keys in env vars only
-         after user clicks Start
+Browser (React)  ──same origin──▶  Fastify (API + /ws + static UI)  ──▶  OpenAI APIs
 ```
 
 ## Prerequisites
@@ -70,24 +67,55 @@ System audio uses the browser's `getDisplayMedia` API. Select a tab and enable *
 
 ## Security
 
-- API keys stored in `backend/.env` only (never in frontend)
+- OpenAI API key entered in the browser UI (localStorage) or optional server fallback in env
 - `.env` is gitignored
 - Short-lived JWT session tokens (default 15 min) for WebSocket connections
-- Rate limiting on all API routes
+- WebSocket auth handshake — token not passed in URL
+- Rate limiting on API routes and audio chunks
 - History requires separate auth token
 - No audio storage by default
-- Transcripts saved only when history is enabled
 - Input validation on all endpoints
-- Fixed system prompts — users cannot inject overrides
 
 ## Production
 
-- Set `NODE_ENV=production`
-- Use HTTPS (required for microphone in most browsers)
-- Store secrets in a secret manager
-- Set `FRONTEND_URL` to your production domain
-- Build: `npm run build`
-- Start: `npm start`
+Single-service deployment: one Node process serves the React app, REST API, and WebSocket on the same origin.
+
+### Build and run locally
+
+```bash
+npm run build
+NODE_ENV=production JWT_SECRET=your-32-char-secret HISTORY_AUTH_SECRET=your-history-secret FRONTEND_URL=https://localhost npm start
+```
+
+Open the URL shown in the logs (default port `3001`). For local HTTPS testing, use a tunnel (e.g. ngrok) — browsers require HTTPS for microphone access.
+
+### Deploy to Render
+
+1. Push this repo to GitHub
+2. In [Render](https://render.com), create a **Blueprint** from `render.yaml`, or a **Web Service** with:
+   - **Build command:** `npm install && npm run build`
+   - **Start command:** `npm start`
+   - **Health check path:** `/api/health`
+3. Set environment variables in the Render dashboard:
+   - `NODE_ENV` = `production`
+   - `JWT_SECRET` — long random string (32+ chars)
+   - `HISTORY_AUTH_SECRET` — long random string (16+ chars)
+   - `FRONTEND_URL` — optional; defaults to Render's `RENDER_EXTERNAL_URL`
+4. Users enter their OpenAI API key in the browser UI (stored in localStorage)
+
+> **Note:** Render's free tier spins down when idle. Live WebSocket sessions may disconnect on cold starts — use a paid instance for always-on use.
+
+### Environment variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `NODE_ENV` | prod | Set to `production` |
+| `JWT_SECRET` | yes | Session token signing key (32+ chars) |
+| `HISTORY_AUTH_SECRET` | yes | History auth token key (16+ chars) |
+| `FRONTEND_URL` | prod* | Public HTTPS URL (*auto from `RENDER_EXTERNAL_URL` on Render) |
+| `PORT` | no | Set automatically by Render |
+| `STATIC_ROOT` | no | Override path to frontend `dist` folder |
+| `OPENAI_API_KEY` | no | Optional server fallback; users can supply key in UI |
 
 ## Models (configurable via env)
 

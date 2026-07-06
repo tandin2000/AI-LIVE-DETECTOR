@@ -14,7 +14,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().default(3001),
   HOST: z.string().optional(),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  FRONTEND_URL: z.string().default('http://localhost:5173'),
+  FRONTEND_URL: z.string().optional(),
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
   SESSION_TOKEN_TTL_SECONDS: z.coerce.number().default(900),
   HISTORY_AUTH_SECRET: z.string().min(16),
@@ -34,20 +34,28 @@ if (!parsed.success) {
 
 const data = parsed.data;
 
+function resolveFrontendUrl(explicit?: string): string {
+  const raw = explicit ?? process.env.RENDER_EXTERNAL_URL ?? 'http://localhost:5173';
+  return raw.replace(/\/$/, '');
+}
+
+const frontendUrl = resolveFrontendUrl(data.FRONTEND_URL);
+
 if (data.NODE_ENV === 'production') {
   const weakSecrets = [DEV_JWT_PLACEHOLDER, DEV_HISTORY_PLACEHOLDER, 'change-this'];
   if (weakSecrets.some((s) => data.JWT_SECRET.includes(s) || data.HISTORY_AUTH_SECRET.includes(s))) {
     console.error('Production requires strong JWT_SECRET and HISTORY_AUTH_SECRET (not dev placeholders).');
     process.exit(1);
   }
-  if (!data.FRONTEND_URL.startsWith('https://')) {
-    console.error('Production FRONTEND_URL must use HTTPS.');
+  if (!frontendUrl.startsWith('https://')) {
+    console.error('Production requires HTTPS FRONTEND_URL (or RENDER_EXTERNAL_URL).');
     process.exit(1);
   }
 }
 
 export const config = {
   ...data,
+  FRONTEND_URL: frontendUrl,
   HOST: data.HOST ?? (data.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1'),
 };
 

@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: ai-live-fact-checker
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: HISTORY_AUTH_SECRET
+        generateValue: true
+      # Optional — Render sets RENDER_EXTERNAL_URL automatically if omitted
+      # - key: FRONTEND_URL
+      #   value: https://your-service-name.onrender.com

@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "ai-live-fact-checker": "file:..",
     "framer-motion": "^11.15.0",
     "lucide-react": "^0.469.0",
     "react": "^18.3.1",

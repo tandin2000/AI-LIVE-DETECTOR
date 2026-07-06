@@ -4,6 +4,7 @@ import rateLimit from '@fastify/rate-limit';
 import websocket from '@fastify/websocket';
 import { config } from './config.js';
 import { registerRoutes } from './routes/index.js';
+import { registerStaticAssets } from './static.js';
 import { handleWebSocketConnection } from './websocket/handler.js';
 
 const app = Fastify({
@@ -36,6 +37,10 @@ async function start(): Promise<void> {
   app.get('/ws', { websocket: true }, (socket) => {
     handleWebSocketConnection(socket);
   });
+
+  if (config.NODE_ENV === 'production') {
+    await registerStaticAssets(app);
+  }
 
   const port = config.PORT;
   await app.listen({ port, host: config.HOST });
