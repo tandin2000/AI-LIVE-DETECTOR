@@ -2,10 +2,32 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AudioSource } from '../types';
 
 const TARGET_SAMPLE_RATE = 24000;
-const SILENCE_THRESHOLD = 0.012;
-const SILENCE_MS = 1000;
-const MIN_SPEECH_MS = 500;
-const MAX_UTTERANCE_MS = 20000;
+
+interface VadConfig {
+  silenceThreshold: number;
+  silenceMs: number;
+  minSpeechMs: number;
+  maxUtteranceMs: number;
+  periodicCommitMs: number | null;
+}
+
+const VAD_BY_SOURCE: Record<AudioSource, VadConfig> = {
+  // Mic picks up room noise; use lower threshold + periodic commits so segments finalize.
+  microphone: {
+    silenceThreshold: 0.006,
+    silenceMs: 750,
+    minSpeechMs: 350,
+    maxUtteranceMs: 12000,
+    periodicCommitMs: 4500,
+  },
+  system_audio: {
+    silenceThreshold: 0.012,
+    silenceMs: 1000,
+    minSpeechMs: 500,
+    maxUtteranceMs: 20000,
+    periodicCommitMs: null,
+  },
+};
 
 function rms(samples: Float32Array): number {
   let sum = 0;
@@ -67,13 +89,17 @@ export function useAudioCapture(
   const contextRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const silentGainRef = useRef<GainNode | null>(null);
   const enabledRef = useRef(enabled);
+  const sourceTypeRef = useRef<AudioSource | null>(null);
   const onAudioChunkRef = useRef(onAudioChunk);
   const onUtteranceEndRef = useRef(onUtteranceEnd);
   const vadRef = useRef({
     speechStarted: false,
     speechStartAt: 0,
     silenceStartAt: 0,
+    lastPeriodicCommitAt: 0,
+    noiseFloor: 0.003,
   });
 
   useEffect(() => {
@@ -90,16 +116,25 @@ export function useAudioCapture(
 
   const stopCapture = useCallback(() => {
     enabledRef.current = false;
-    vadRef.current = { speechStarted: false, speechStartAt: 0, silenceStartAt: 0 };
+    vadRef.current = {
+      speechStarted: false,
+      speechStartAt: 0,
+      silenceStartAt: 0,
+      lastPeriodicCommitAt: 0,
+      noiseFloor: 0.003,
+    };
     processorRef.current?.disconnect();
     sourceRef.current?.disconnect();
+    silentGainRef.current?.disconnect();
     contextRef.current?.close().catch(() => {});
     streamRef.current?.getTracks().forEach((t) => t.stop());
 
     processorRef.current = null;
     sourceRef.current = null;
+    silentGainRef.current = null;
     contextRef.current = null;
     streamRef.current = null;
+    sourceTypeRef.current = null;
 
     setState((s) => ({ ...s, isCapturing: false }));
   }, []);
@@ -108,6 +143,7 @@ export function useAudioCapture(
     async (sourceType: AudioSource) => {
       stopCapture();
       setState({ isCapturing: false, error: null, sourceType });
+      sourceTypeRef.current = sourceType;
 
       try {
         let stream: MediaStream;
@@ -117,7 +153,8 @@ export function useAudioCapture(
             audio: {
               echoCancellation: true,
               noiseSuppression: true,
-              autoGainControl: true,
+              // AGC can keep the noise floor high and block silence detection.
+              autoGainControl: false,
             },
             video: false,
           });
@@ -152,7 +189,7 @@ export function useAudioCapture(
 
         streamRef.current = stream;
 
-        const context = new AudioContext({ sampleRate: TARGET_SAMPLE_RATE });
+        const context = new AudioContext();
         contextRef.current = context;
 
         if (context.state === 'suspended') {
@@ -165,8 +202,14 @@ export function useAudioCapture(
         const processor = context.createScriptProcessor(4096, 1, 1);
         processorRef.current = processor;
 
+        const silentGain = context.createGain();
+        silentGain.gain.value = 0;
+        silentGainRef.current = silentGain;
+
         processor.onaudioprocess = (e) => {
           if (!enabledRef.current) return;
+
+          const cfg = VAD_BY_SOURCE[sourceTypeRef.current ?? 'microphone'];
           const input = e.inputBuffer.getChannelData(0);
           const downsampled = downsampleBuffer(input, context.sampleRate, TARGET_SAMPLE_RATE);
           const pcm = floatTo16BitPCM(downsampled);
@@ -175,12 +218,23 @@ export function useAudioCapture(
           const volume = rms(downsampled);
           const now = Date.now();
           const vad = vadRef.current;
-          const isSpeech = volume > SILENCE_THRESHOLD;
+
+          // Track ambient noise floor when not speaking (mic rooms are rarely truly silent).
+          if (!vad.speechStarted) {
+            vad.noiseFloor = vad.noiseFloor * 0.95 + volume * 0.05;
+          }
+
+          const adaptiveThreshold = Math.max(
+            cfg.silenceThreshold,
+            vad.noiseFloor * 2.5
+          );
+          const isSpeech = volume > adaptiveThreshold;
 
           if (isSpeech) {
             if (!vad.speechStarted) {
               vad.speechStarted = true;
               vad.speechStartAt = now;
+              vad.lastPeriodicCommitAt = now;
             }
             vad.silenceStartAt = 0;
           } else if (vad.speechStarted) {
@@ -191,22 +245,35 @@ export function useAudioCapture(
             const silenceDuration = now - vad.silenceStartAt;
             const utteranceDuration = now - vad.speechStartAt;
 
-            if (silenceDuration >= SILENCE_MS && utteranceDuration >= MIN_SPEECH_MS) {
+            if (silenceDuration >= cfg.silenceMs && utteranceDuration >= cfg.minSpeechMs) {
               onUtteranceEndRef.current();
               vad.speechStarted = false;
               vad.silenceStartAt = 0;
+              vad.lastPeriodicCommitAt = 0;
             }
           }
 
-          if (vad.speechStarted && now - vad.speechStartAt >= MAX_UTTERANCE_MS) {
+          if (
+            vad.speechStarted &&
+            cfg.periodicCommitMs &&
+            now - vad.lastPeriodicCommitAt >= cfg.periodicCommitMs &&
+            now - vad.speechStartAt >= cfg.minSpeechMs
+          ) {
+            onUtteranceEndRef.current();
+            vad.lastPeriodicCommitAt = now;
+          }
+
+          if (vad.speechStarted && now - vad.speechStartAt >= cfg.maxUtteranceMs) {
             onUtteranceEndRef.current();
             vad.speechStarted = false;
             vad.silenceStartAt = 0;
+            vad.lastPeriodicCommitAt = 0;
           }
         };
 
         source.connect(processor);
-        processor.connect(context.destination);
+        processor.connect(silentGain);
+        silentGain.connect(context.destination);
 
         stream.getAudioTracks()[0]?.addEventListener('ended', () => {
           stopCapture();

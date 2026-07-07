@@ -3,7 +3,7 @@ import { config } from '../config.js';
 
 export type RealtimeEventHandler = (event: Record<string, unknown>) => void;
 
-const MAX_UTTERANCE_MS = 25000;
+const MAX_UTTERANCE_MS = 12000;
 
 export class RealtimeTranscriptionSession {
   private ws: WebSocket | null = null;
