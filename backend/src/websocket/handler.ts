@@ -34,6 +34,32 @@ interface SessionState {
 }
 
 const sessions = new WeakMap<WebSocket, SessionState>();
+const finalizeTimers = new WeakMap<WebSocket, ReturnType<typeof setTimeout>>();
+
+function cancelFinalizeTimer(ws: WebSocket): void {
+  const timer = finalizeTimers.get(ws);
+  if (timer) {
+    clearTimeout(timer);
+    finalizeTimers.delete(ws);
+  }
+}
+
+function scheduleLiveSegmentAnalysis(ws: WebSocket): void {
+  cancelFinalizeTimer(ws);
+
+  const timer = setTimeout(() => {
+    finalizeTimers.delete(ws);
+    const current = sessions.get(ws);
+    if (!current) return;
+
+    const text = current.liveSegment.trim();
+    if (text.length < 8) return;
+
+    void processCompletedSegment(ws, current, text);
+  }, 1500);
+
+  finalizeTimers.set(ws, timer);
+}
 
 function send(ws: WebSocket, payload: Record<string, unknown>): void {
   if (ws.readyState === ws.OPEN) {
@@ -46,14 +72,36 @@ function extractTranscriptEvent(
 ): { kind: 'delta' | 'completed'; text: string } | null {
   const type = event.type as string;
 
-  if (type === 'conversation.item.input_audio_transcription.completed') {
+  if (
+    type === 'conversation.item.input_audio_transcription.completed' ||
+    type === 'input_audio_transcription.completed'
+  ) {
     const transcript = event.transcript as string | undefined;
     return transcript ? { kind: 'completed', text: transcript } : null;
   }
 
-  if (type === 'conversation.item.input_audio_transcription.delta') {
+  if (
+    type === 'conversation.item.input_audio_transcription.delta' ||
+    type === 'input_audio_transcription.delta'
+  ) {
     const delta = event.delta as string | undefined;
     return delta ? { kind: 'delta', text: delta } : null;
+  }
+
+  if (type === 'conversation.item.done') {
+    const item = event.item as
+      | {
+          role?: string;
+          content?: Array<{ type?: string; transcript?: string | null }>;
+        }
+      | undefined;
+    if (item?.role === 'user') {
+      for (const part of item.content ?? []) {
+        if (part.type === 'input_audio' && part.transcript) {
+          return { kind: 'completed', text: part.transcript };
+        }
+      }
+    }
   }
 
   return null;
@@ -117,6 +165,15 @@ async function processVerificationQueue(ws: WebSocket, state: SessionState): Pro
       state.apiKey,
       state.sessionId
     );
+
+    if (result.analysisError) {
+      send(ws, {
+        type: 'analysis_error',
+        stage: 'fact_check',
+        message: result.analysisError,
+      });
+    }
+
     send(ws, { type: 'fact_check', result });
 
     if (state.historyEnabled) {
@@ -139,6 +196,11 @@ async function processCompletedSegment(
   const text = segment.trim();
   if (!text) return;
 
+  cancelFinalizeTimer(ws);
+
+  const lastSegment = state.segments[state.segments.length - 1];
+  if (lastSegment === text) return;
+
   state.segments.push(text);
   if (state.segments.length > 20) {
     state.segments = state.segments.slice(-15);
@@ -148,7 +210,12 @@ async function processCompletedSegment(
   send(ws, { type: 'transcript_segment', segment: text });
 
   const context = getRecentContext(state.segments);
-  const claims = await detectClaims(text, context, state.apiKey, state.sessionId);
+  const { claims, error } = await detectClaims(text, context, state.apiKey, state.sessionId);
+
+  if (error) {
+    send(ws, { type: 'analysis_error', stage: 'claim_detection', message: error });
+  }
+
   if (claims.length === 0) return;
 
   enqueueClaims(ws, state, claims, context);
@@ -208,6 +275,7 @@ function cleanupSession(ws: WebSocket): void {
   const state = sessions.get(ws);
   if (!state) return;
 
+  cancelFinalizeTimer(ws);
   state.realtime?.close();
   state.realtime = null;
   state.active = false;
@@ -292,6 +360,7 @@ function attachSessionHandlers(ws: WebSocket, state: SessionState): void {
 
       case 'commit':
         current.realtime?.commitBuffer();
+        scheduleLiveSegmentAnalysis(ws);
         break;
 
       case 'stop':

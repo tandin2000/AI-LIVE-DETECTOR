@@ -136,4 +136,5 @@ export interface FactCheckResult {
   missing_information: string[];
   source_type: 'microphone' | 'system_audio';
   should_update_later: boolean;
+  analysisError?: string;
 }

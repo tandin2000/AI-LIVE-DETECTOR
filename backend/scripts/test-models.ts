@@ -28,11 +28,11 @@ async function main(): Promise<void> {
     process.env.OPENAI_API_KEY ?? 'sk-test',
     'test-session'
   );
-  console.log('detectClaims:', claims);
+  console.log('detectClaims:', claims.claims, claims.error ?? '');
 
-  if (claims.length > 0) {
+  if (claims.claims.length > 0) {
     const result = await factCheckClaim(
-      claims[0],
+      claims.claims[0],
       'The Earth orbits the Sun once every 365 days.',
       'microphone',
       process.env.OPENAI_API_KEY ?? 'sk-test',

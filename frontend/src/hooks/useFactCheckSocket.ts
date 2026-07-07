@@ -142,6 +142,7 @@ export function useFactCheckSocket() {
               audioEnabledRef.current = false;
               break;
             case 'error':
+            case 'analysis_error':
               setError(msg.message);
               break;
           }
