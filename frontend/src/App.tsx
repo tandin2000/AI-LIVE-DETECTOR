@@ -151,6 +151,7 @@ export default function App() {
                 claim={socket.currentClaim}
                 queuePending={socket.queuePending}
                 isVerifying={socket.isVerifying}
+                sourceType={socket.sourceType ?? selectedSource}
               />
             </div>
             <div className="lg:col-span-4">

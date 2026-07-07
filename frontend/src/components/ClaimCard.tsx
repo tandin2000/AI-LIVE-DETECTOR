@@ -5,13 +5,14 @@ interface Props {
   claim: string | null;
   queuePending?: number;
   isVerifying?: boolean;
+  sourceType?: 'microphone' | 'system_audio' | null;
 }
 
-export function ClaimCard({ claim, queuePending = 0, isVerifying = false }: Props) {
+export function ClaimCard({ claim, queuePending = 0, isVerifying = false, sourceType = null }: Props) {
   return (
     <div className="panel h-full flex flex-col min-h-[380px] lg:min-h-0">
       <div className="panel-header">
-        <h2 className="panel-title">Claim</h2>
+        <h2 className="panel-title">{sourceType === 'microphone' ? 'Sentence' : 'Claim'}</h2>
         {queuePending > 0 && (
           <span className="ml-auto text-[11px] font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md">
             +{queuePending} queued
@@ -39,7 +40,9 @@ export function ClaimCard({ claim, queuePending = 0, isVerifying = false }: Prop
           </motion.div>
         ) : (
           <p className="text-ink-muted text-sm text-center leading-relaxed">
-            Summarized claims appear here as speech is analyzed
+            {sourceType === 'microphone'
+              ? 'Spoken sentences appear here as they are checked'
+              : 'Summarized claims appear here as speech is analyzed'}
           </p>
         )}
       </div>

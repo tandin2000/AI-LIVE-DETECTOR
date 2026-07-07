@@ -209,6 +209,12 @@ async function processCompletedSegment(
 
   send(ws, { type: 'transcript_segment', segment: text });
 
+  if (state.sourceType === 'microphone') {
+    if (text.length < 8) return;
+    enqueueClaims(ws, state, [text], text);
+    return;
+  }
+
   const context = getRecentContext(state.segments);
   const { claims, error } = await detectClaims(text, context, state.apiKey, state.sessionId);
 
